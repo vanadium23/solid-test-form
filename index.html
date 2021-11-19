@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://bundle.run/buffer@6.0.3"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.0.0/crypto-js.min.js"
+        integrity="sha512-nOQuvD9nKirvxDdvQ9OMqe2dgapbPB7vYAMrzJihw5m+aNcf0dX53m6YxM4LgA9u8e9eg9QX+/+mPu8kCNpV2A=="
+        crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <title>Solid Test Form</title>
+    <style>
+        div {
+            margin: 10px;
+        }
+
+    </style>
+</head>
+
+<body>
+
+    <main>
+        <div>
+            <form id="solidForm" onsubmit="getSolidFormUrl()">
+                <fieldset>
+                    <legend>Данные для Solid</legend>
+                    <div>
+                        <label>Ключ public (api-pk) <input type="text" name="api_pk" required></label>
+                    </div>
+                    <div>
+                        <label>Ключ secret (api-sk) <input type="text" name="api_sk" required></label>
+                    </div>
+                </fieldset>
+                <fieldset>
+                    <legend>Данные по заказу</legend>
+                    <div>
+                        <label>order_id <input type="text" name="order_id" required></label>
+                    </div>
+                    <div>
+                        <label>email <input type="email" name="email" required></label>
+                    </div>
+                    <div>
+                        <label>amount <input type="number" name="amount" required></label>
+                    </div>
+                    <div>
+                        <label>currency <input type="text" name="currency" required></label>
+                    </div>
+                </fieldset>
+                <fieldset>
+                    <legend>Кнопочки</legend>
+                    <input type="submit" value="Get form url">
+                </fieldset>
+            </form>
+        </div>
+        <div>
+            <div id="result">
+
+            </div>
+        </div>
+    </main>
+
+    <script>
+        const crypto = window.crypto || window.msCrypto;
+        const Buffer = buffer.Buffer;
+
+        class SolidApi {
+            static IV_LENGTH = 16;
+            static KEY_LENGTH = 32;
+            static BASE_SOLID_GATE_API_URI = 'https://cors-anywhere.herokuapp.com/https://pay.solidgate.com/api/v1/';
+
+            constructor(merchantId, privateKey, baseSolidGateUri = SolidApi.BASE_SOLID_GATE_API_URI) {
+                this.merchantId = merchantId;
+                this.privateKey = privateKey;
+                this.baseSolidGateUri = baseSolidGateUri;
+            }
+
+            charge(attributes) {
+                return this._baseRequest('charge', attributes)
+            }
+
+            auth(attributes) {
+                return this._baseRequest('auth', attributes)
+            }
+
+            recurring(attributes) {
+                return this._baseRequest('recurring', attributes)
+            }
+
+            refund(attributes) {
+                return this._baseRequest('refund', attributes)
+            }
+
+            status(attributes) {
+                return this._baseRequest('status', attributes)
+            }
+
+            initPayment(attributes) {
+                return this._baseRequest('init-payment', attributes)
+            }
+
+            settle(attributes) {
+                return this._baseRequest('settle', attributes)
+            }
+
+            void(attributes) {
+                return this._baseRequest('void', attributes)
+            }
+
+            resign(attributes) {
+                return this._baseRequest('resign', attributes)
+            }
+
+            arnCode(attributes) {
+                return this._baseRequest('arn-code', attributes)
+            }
+
+            applePay(attributes) {
+                return this._baseRequest('apple-pay', attributes)
+            }
+
+            googlePay(attributes) {
+                return this._baseRequest('google-pay', attributes)
+            }
+
+            _encryptPayload(attributes) {
+                let key = this.privateKey
+
+                let iv = crypto.randomBytes(SolidApi.IV_LENGTH);
+                let cipher = crypto.createCipheriv('aes-256-cbc', key.substr(0, SolidApi.KEY_LENGTH), iv);
+                let encrypted = cipher.update(attributes);
+
+                encrypted = Buffer.concat([iv, encrypted, cipher.final()]);
+                return encrypted.toString('base64').replace(/\+/g, '-').replace(/\//g, '_')
+            }
+
+            _baseRequest(path, attributes) {
+                let data = JSON.stringify(attributes);
+
+                return new Promise(((resolve, reject) => {
+                    fetch(this.baseSolidGateUri + path, {
+                        method: 'POST',
+                        headers: {
+                            'Merchant': this.merchantId,
+                            'Signature': this._generateSignature(data),
+                            'Content-Type': 'application/json'
+                        },
+                        body: data
+                    })
+                        .then(res => resolve(res.json()))
+                        .catch(err => reject(err))
+                }));
+            }
+
+            _generateSignature(attributes) {
+                // original
+                var hashed = CryptoJS.HmacSHA512(this.merchantId + attributes + this.merchantId, this.privateKey);
+                return Buffer.from(hashed.toString()).toString('base64');
+                // var hashed = crypto.HmacSHA512(this.merchantId + attributes + this.merchantId, this.privateKey);
+                // return Buffer.from(hashed.toString()).toString('base64')
+            }
+        }
+    </script>
+
+    <script>
+        function getSolidFormUrl() {
+            event.preventDefault(); // prevent form from submit
+            const inputs = document.forms["solidForm"].elements;
+            const solid = new SolidApi(inputs["api_pk"].value, inputs["api_sk"].value);
+            const order_id = inputs["order_id"].value;
+            solid.initPayment({
+                "amount": inputs["amount"].value,
+                "currency": inputs["currency"].value,
+                "order_description": "Kodland Lessons Pack",
+                "customer_email": inputs["email"].value,
+                "platform": "WEB",
+                "order_id": order_id,
+                "ip_address": "182.83.50.2",
+            }).then((result) => {
+                if (result.error) {
+                    alert(JSON.stringify(result.error));
+                    return;
+                }
+                const resultDiv = document.getElementById("result");
+                resultDiv.innerHTML = `Form link for ${order_id}: <a href="${result.pay_form.form_url}">${result.pay_form.form_url}</a>`
+            })
+        }
+    </script>
+</body>
+
+</html>
